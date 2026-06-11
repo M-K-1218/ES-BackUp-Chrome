@@ -104,12 +104,16 @@ function collectFormBackup(emptyText, unknownQuestion) {
   const questionCounts = new Map();
   const sections = groups.map((group) => {
     const question = addDuplicateNumber(group.question, questionCounts);
-    return `【${question}】\n${group.answer || emptyText}`;
+    const answer = group.answer || emptyText;
+    const characterCount = countAnswerCharacters(answer, emptyText);
+    const characterCountLine = characterCount >= 100 ? `\n（文字数：${characterCount}字）` : "";
+    return `【${question}】\n${answer}${characterCountLine}`;
   });
+  const pageInfoSections = getPageInfoSections();
 
   return {
     count: sections.length,
-    text: sections.join("\n\n")
+    text: [...pageInfoSections, ...sections].join("\n\n")
   };
 
   function isExcluded(control) {
@@ -296,6 +300,133 @@ function collectFormBackup(emptyText, unknownQuestion) {
     const count = (counts.get(question) || 0) + 1;
     counts.set(question, count);
     return count === 1 ? question : `${question}(${count})`;
+  }
+
+  function countAnswerCharacters(answer, fallback) {
+    if (!answer || answer === fallback) return 0;
+    return Array.from(String(answer).replace(/\r\n/g, "\n")).length;
+  }
+
+  function getPageInfoSections() {
+    const sources = getPageInfoSources();
+    const companyName = detectCompanyName(sources);
+    const internName = detectInternName(sources);
+    return [buildDocumentTitle(companyName, internName)];
+  }
+
+  function buildDocumentTitle(companyName, internName) {
+    const titleParts = [companyName, internName, `${getCurrentDateText()}保存版`]
+      .map(cleanTitlePart)
+      .filter(Boolean);
+    return titleParts.join("/");
+  }
+
+  function getCurrentDateText() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  function cleanTitlePart(text) {
+    return normalizeText(text).replace(/[\\/:*?"<>|]/g, " ").trim();
+  }
+
+  function getPageInfoSources() {
+    const metaSelectors = [
+      "meta[property='og:site_name']",
+      "meta[property='og:title']",
+      "meta[name='application-name']",
+      "meta[name='title']",
+      "meta[name='description']"
+    ];
+    const metaTexts = metaSelectors
+      .map((selector) => document.querySelector(selector)?.content)
+      .filter(Boolean);
+    const headingTexts = Array.from(document.querySelectorAll("h1, h2, h3"))
+      .slice(0, 12)
+      .map((heading) => heading.textContent);
+    const logoTexts = Array.from(document.querySelectorAll("img[alt], [aria-label]"))
+      .slice(0, 20)
+      .map((element) => element.getAttribute("alt") || element.getAttribute("aria-label"));
+
+    return [document.title, ...metaTexts, ...headingTexts, ...logoTexts]
+      .map(normalizeText)
+      .filter(Boolean);
+  }
+
+  function detectCompanyName(sources) {
+    const legalFormPattern = /(?:株式会社|有限会社|合同会社|学校法人|医療法人)\s*[^｜|:：\-–—【】「」()（）\[\]\s]{1,40}|[^｜|:：\-–—【】「」()（）\[\]\s]{1,40}\s*(?:株式会社|有限会社|合同会社|Inc\.?|Corporation|Corp\.?|Ltd\.?|LLC)/i;
+
+    for (const source of sources) {
+      const match = source.match(legalFormPattern);
+      if (match) {
+        return cleanPageInfoText(match[0]);
+      }
+    }
+
+    for (const source of sources) {
+      const segments = splitPageInfoSegments(source);
+      const candidate = segments.find(isLikelyCompanyName);
+      if (candidate) {
+        return candidate;
+      }
+    }
+
+    return "";
+  }
+
+  function detectInternName(sources) {
+    const internPattern = /[^｜|。:：]{0,35}(?:インターンシップ|インターン|Internship|Intern)[^｜|。:：]{0,45}/i;
+
+    for (const source of sources) {
+      const candidate = splitPageInfoSegments(source).find((segment) => internPattern.test(segment));
+      if (candidate && !isGenericPageInfo(candidate)) {
+        return candidate;
+      }
+    }
+
+    for (const source of sources) {
+      const fallbackMatch = source.match(internPattern);
+      if (fallbackMatch) {
+        const candidate = cleanPageInfoText(fallbackMatch[0]);
+        if (candidate && !isGenericPageInfo(candidate)) {
+          return candidate;
+        }
+      }
+    }
+
+    return "";
+  }
+
+  function splitPageInfoSegments(text) {
+    return String(text)
+      .split(/[|｜\-–—:：]/)
+      .map(cleanPageInfoText)
+      .filter(Boolean);
+  }
+
+  function cleanPageInfoText(text) {
+    return normalizeText(text)
+      .replace(/^[\s「『【\[(]+|[\s」』】\])]+$/g, "")
+      .replace(/\s*(採用情報|新卒採用|中途採用|マイページ|応募フォーム|エントリーシート|ES)$/i, "")
+      .trim();
+  }
+
+  function isLikelyCompanyName(text) {
+    const candidate = cleanPageInfoText(text);
+    if (candidate.length < 2 || candidate.length > 40) return false;
+    if (isGenericPageInfo(candidate)) return false;
+    if (/(採用|応募|エントリー|フォーム|アンケート|ログイン|マイページ|インターン|説明会|選考|ES)$/i.test(candidate)) {
+      return false;
+    }
+    return /[一-龠ぁ-んァ-ヶA-Za-z0-9]/.test(candidate);
+  }
+
+  function isGenericPageInfo(text) {
+    return /^(採用情報|新卒採用|中途採用|応募|応募フォーム|エントリー|エントリーシート|ES|フォーム|アンケート|ログイン|マイページ|My Page|Recruit|Careers?)$/i
+      .test(cleanPageInfoText(text));
   }
 
   function firstVisibleElement(items) {
