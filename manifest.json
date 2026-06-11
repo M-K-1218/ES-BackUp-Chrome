@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "ES Backup",
+  "version": "1.0.0",
+  "description": "Webフォーム上の設問と回答をバックアップ用にクリップボードへコピーします。",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "ES Backup"
+  },
+  "permissions": [
+    "activeTab",
+    "clipboardWrite",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ]
+}
